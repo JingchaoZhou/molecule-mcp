@@ -11,22 +11,10 @@ xmlrpc_port = 42184
 s = ServerProxy(uri=f"http://127.0.0.1:{xmlrpc_port}/RPC2")
 
 def _pick_display():
-    # 1) 优先使用当前 DISPLAY（但必须 socket 存在）
-    d = os.environ.get("DISPLAY", "")
-    if d.startswith(":"):
-        sock = f"/tmp/.X11-unix/X{d[1:]}"
-        if os.path.exists(sock):
-            return d
-
-    # 2) 自动找一个存在的 X socket（你现在会选到 :171）
-    xs = sorted(glob.glob("/tmp/.X11-unix/X*"))
-    if xs:
-        # 取第一个/最后一个都行；这里取第一个更直觉
-        num = os.path.basename(xs[0])[1:]
-        return f":{num}"
-
-    # 3) 兜底
-    return ":105"
+    d = os.environ.get("DISPLAY")
+    if d:
+        return d
+    return ":99"
 
 @mcp.tool()
 def open_chimerax():
@@ -39,7 +27,10 @@ def open_chimerax():
     env.setdefault("QT_QPA_PLATFORM", "xcb")
 
     subprocess.Popen(
-        [chimerax_bin, "--cmd", "remotecontrol xmlrpc true"],
+        [chimerax_bin,
+         "--cmd", "remotecontrol xmlrpc true",
+         "--no-sandbox",
+         ],
         stdout=open(logf, "a"),
         stderr=open(logf, "a"),
         text=True,
