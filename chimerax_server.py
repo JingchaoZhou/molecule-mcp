@@ -1,8 +1,4 @@
-import socket
-import time
-import os
-import glob
-import subprocess
+import os, pwd, subprocess
 from xmlrpc.client import ServerProxy
 from mcp.server.fastmcp import FastMCP
 
@@ -10,63 +6,49 @@ mcp = FastMCP("chimerax")
 xmlrpc_port = 42184
 s = ServerProxy(uri=f"http://127.0.0.1:{xmlrpc_port}/RPC2")
 
-def _pick_display():
-    d = os.environ.get("DISPLAY", "")
-    if d.startswith(":"):
-        sock = f"/tmp/.X11-unix/X{d[1:]}"
-        if os.path.exists(sock):
-            return d
+CHIMERAX_BIN = "/usr/lib/ucsf-chimerax/bin/ChimeraX"
+CHIMERAX_USER = os.environ.get("CHIMERAX_USER", "nobody")  # 你也可以换成一个真实用户
 
-    xs = sorted(glob.glob("/tmp/.X11-unix/X*"))
-    if xs:
-        num = os.path.basename(xs[-1])[1:]
-        return f":{num}"
-
-    return ":99"
-
-def _wait_port(host, port, timeout=20):
-    start = time.time()
-    last_err = None
-    while time.time() - start < timeout:
-        try:
-            with socket.create_connection((host, port), timeout=1):
-                return True, None
-        except Exception as e:
-            last_err = e
-            time.sleep(0.5)
-    return False, last_err
+def _drop_privileges(user: str):
+    pw = pwd.getpwnam(user)
+    def fn():
+        os.setgid(pw.pw_gid)
+        os.setuid(pw.pw_uid)
+        os.environ["HOME"] = pw.pw_dir
+    return fn
 
 @mcp.tool()
 def open_chimerax():
-    chimerax_bin = "/usr/lib/ucsf-chimerax/bin/ChimeraX"
     logf = "/tmp/chimerax.log"
+    display = os.environ.get("DISPLAY", ":99")
 
-    display = _pick_display()
     env = os.environ.copy()
     env["DISPLAY"] = display
     env.setdefault("QT_QPA_PLATFORM", "xcb")
-    # 关键：禁用 QtWebEngine/Chromium sandbox（而不是传 --no-sandbox 给 ChimeraX）
     env.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
-    # 可选：某些环境还需要这个
-    env.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--no-sandbox")
+
+    # 关键：给 ChimeraX 可写目录，避免 /do/not/run/as/root
+    env["HOME"] = f"/tmp/chimerax_home_{CHIMERAX_USER}"
+    env["XDG_CONFIG_HOME"] = env["HOME"] + "/.config"
+    env["XDG_DATA_HOME"]   = env["HOME"] + "/.local/share"
+    os.makedirs(env["XDG_CONFIG_HOME"], exist_ok=True)
+    os.makedirs(env["XDG_DATA_HOME"], exist_ok=True)
+
+    # 关键：GL/EGL 报错时，强制软件渲染（常见救命项）
+    env.setdefault("LIBGL_ALWAYS_SOFTWARE", "1")
+    env.setdefault("QT_XCB_GL_INTEGRATION", "none")
+
+    cmd = f"remotecontrol xmlrpc enable address 127.0.0.1 port {xmlrpc_port}"
 
     subprocess.Popen(
-        [
-            chimerax_bin,
-            "--cmd",
-            f"remotecontrol xmlrpc true port {xmlrpc_port}",
-        ],
+        [CHIMERAX_BIN, "--cmd", cmd],
         stdout=open(logf, "a"),
         stderr=open(logf, "a"),
         text=True,
         env=env,
+        preexec_fn=_drop_privileges(CHIMERAX_USER),
     )
-
-    ok, err = _wait_port("127.0.0.1", xmlrpc_port, timeout=20)
-    if not ok:
-        return f"started {chimerax_bin} DISPLAY={display} but xmlrpc not ready on 127.0.0.1:{xmlrpc_port}, last_err={err}"
-
-    return f"ready {chimerax_bin} DISPLAY={display} xmlrpc={xmlrpc_port}"
+    return f"started {CHIMERAX_BIN} DISPLAY={display} user={CHIMERAX_USER}"
 
 @mcp.tool()
 def run_chimerax_command(command: str):
