@@ -45,11 +45,14 @@ def open_chimerax():
     env = os.environ.copy()
     env["DISPLAY"] = display
     env.setdefault("QT_QPA_PLATFORM", "xcb")
+    # 关键：禁用 QtWebEngine/Chromium sandbox（而不是传 --no-sandbox 给 ChimeraX）
+    env.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
+    # 可选：某些环境还需要这个
+    env.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--no-sandbox")
 
     subprocess.Popen(
         [
             chimerax_bin,
-            "--no-sandbox",
             "--cmd",
             f"remotecontrol xmlrpc true port {xmlrpc_port}",
         ],
