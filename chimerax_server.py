@@ -14,27 +14,35 @@ def _drop_privileges(user: str):
     def fn():
         os.setgid(pw.pw_gid)
         os.setuid(pw.pw_uid)
-        os.environ["HOME"] = pw.pw_dir
     return fn
 
-@mcp.tool()
+def _prepare_dirs_for(user: str, home: str):
+    pw = pwd.getpwnam(user)
+    cfg = os.path.join(home, ".config")
+    data = os.path.join(home, ".local", "share")
+    os.makedirs(cfg, exist_ok=True)
+    os.makedirs(data, exist_ok=True)
+    # 关键：目录必须归 nobody，否则 drop 后无法写
+    os.chown(home, pw.pw_uid, pw.pw_gid)
+    os.chown(os.path.join(home, ".config"), pw.pw_uid, pw.pw_gid)
+    os.chown(os.path.join(home, ".local"), pw.pw_uid, pw.pw_gid)
+    os.chown(os.path.join(home, ".local", "share"), pw.pw_uid, pw.pw_gid)
+
 def open_chimerax():
     logf = "/tmp/chimerax.log"
     display = os.environ.get("DISPLAY", ":99")
 
+    home = f"/tmp/chimerax_home_{CHIMERAX_USER}"
+    os.makedirs(home, exist_ok=True)
+    _prepare_dirs_for(CHIMERAX_USER, home)
+
     env = os.environ.copy()
     env["DISPLAY"] = display
+    env["HOME"] = home
+    env["XDG_CONFIG_HOME"] = os.path.join(home, ".config")
+    env["XDG_DATA_HOME"]   = os.path.join(home, ".local", "share")
     env.setdefault("QT_QPA_PLATFORM", "xcb")
     env.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
-
-    # 关键：给 ChimeraX 可写目录，避免 /do/not/run/as/root
-    env["HOME"] = f"/tmp/chimerax_home_{CHIMERAX_USER}"
-    env["XDG_CONFIG_HOME"] = env["HOME"] + "/.config"
-    env["XDG_DATA_HOME"]   = env["HOME"] + "/.local/share"
-    os.makedirs(env["XDG_CONFIG_HOME"], exist_ok=True)
-    os.makedirs(env["XDG_DATA_HOME"], exist_ok=True)
-
-    # 关键：GL/EGL 报错时，强制软件渲染（常见救命项）
     env.setdefault("LIBGL_ALWAYS_SOFTWARE", "1")
     env.setdefault("QT_XCB_GL_INTEGRATION", "none")
 
