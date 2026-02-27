@@ -1,4 +1,4 @@
-import os, pwd, subprocess
+import glob, os, pwd, subprocess
 from xmlrpc.client import ServerProxy
 from mcp.server.fastmcp import FastMCP
 
@@ -28,10 +28,32 @@ def _prepare_dirs_for(user: str, home: str):
     os.chown(os.path.join(home, ".local"), pw.pw_uid, pw.pw_gid)
     os.chown(os.path.join(home, ".local", "share"), pw.pw_uid, pw.pw_gid)
 
+def _display_usable(d: str) -> bool:
+    # 只要 X socket 在就基本可用（Xvfb -ac 无鉴权）
+    if not d or not d.startswith(":"):
+        return False
+    sock = f"/tmp/.X11-unix/X{d[1:]}"
+    return os.path.exists(sock)
+
+def _pick_display() -> str:
+    # 1) 优先用当前 DISPLAY（但必须真的可用）
+    d = os.environ.get("DISPLAY", "")
+    if _display_usable(d):
+        return d
+
+    # 2) 否则从 /tmp/.X11-unix/X* 自动挑一个存在的
+    xs = sorted(glob.glob("/tmp/.X11-unix/X*"))
+    if xs:
+        num = os.path.basename(xs[-1])[1:]   # 取最后一个（通常是最新起的）
+        return f":{num}"
+
+    # 3) 实在没有才兜底
+    return ":99"
+
 @mcp.tool()
 def open_chimerax():
     logf = "/tmp/chimerax.log"
-    display = os.environ.get("DISPLAY", ":99")
+    display = _pick_display()
 
     home = f"/tmp/chimerax_home_{CHIMERAX_USER}"
     os.makedirs(home, exist_ok=True)
