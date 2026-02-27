@@ -28,6 +28,7 @@ def _prepare_dirs_for(user: str, home: str):
     os.chown(os.path.join(home, ".local"), pw.pw_uid, pw.pw_gid)
     os.chown(os.path.join(home, ".local", "share"), pw.pw_uid, pw.pw_gid)
 
+@mcp.tool()
 def open_chimerax():
     logf = "/tmp/chimerax.log"
     display = os.environ.get("DISPLAY", ":99")
