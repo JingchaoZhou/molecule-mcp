@@ -87,7 +87,7 @@ def open_chimerax():
     env.setdefault("QT_QUICK_BACKEND", "software")   # Qt Quick 走软件后端
 
     # ✅ 用 offscreen/nogui 避免创建 GUI/OpenGL 上下文（这是你现在 segfault 的根因）
-    cmd = f"remotecontrol xmlrpc enable true address 127.0.0.1 port {xmlrpc_port}"
+    cmd = f"remotecontrol xmlrpc true"
     argv = [CHIMERAX_BIN, "--offscreen", "--cmd", cmd]
 
     subprocess.Popen(
